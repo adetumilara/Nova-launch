@@ -25,6 +25,34 @@ fn test_initialize() {
 }
 
 #[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_negative_base_fee_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, TokenFactory);
+    let client = TokenFactoryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    // Negative base fee should be rejected
+    client.initialize(&admin, &treasury, &-1, &30_000_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_negative_metadata_fee_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, TokenFactory);
+    let client = TokenFactoryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    // Negative metadata fee should be rejected
+    client.initialize(&admin, &treasury, &70_000_000, &-1);
+}
+
+#[test]
 #[should_panic(expected = "Error(Contract, #6)")]
 fn test_cannot_initialize_twice() {
     let env = Env::default();
@@ -91,6 +119,42 @@ fn test_update_fees() {
     client.update_fees(&admin, &None, &Some(50_000_000));
     let state = client.get_state();
     assert_eq!(state.metadata_fee, 50_000_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_update_fees_negative_base_fee_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, TokenFactory);
+    let client = TokenFactoryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.initialize(&admin, &treasury, &70_000_000, &30_000_000);
+
+    // Negative base fee should be rejected
+    client.update_fees(&admin, &Some(-1), &None);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #3)")]
+fn test_update_fees_negative_metadata_fee_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register_contract(None, TokenFactory);
+    let client = TokenFactoryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let treasury = Address::generate(&env);
+
+    client.initialize(&admin, &treasury, &70_000_000, &30_000_000);
+
+    // Negative metadata fee should be rejected
+    client.update_fees(&admin, &None, &Some(-1));
 }
 
 #[test]
