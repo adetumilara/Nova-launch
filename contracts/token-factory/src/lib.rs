@@ -173,3 +173,6 @@ mod atomic_token_creation_test;
 
 #[cfg(test)]
 mod metadata_immutability_test;
+
+#[cfg(test)]
+mod token_registry_test;
