@@ -87,3 +87,18 @@ impl TokenFactory {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod fuzz_test;
+
+#[cfg(test)]
+mod bench_test;
+
+#[cfg(test)]
+mod supply_conservation_test;
+
+#[cfg(test)]
+mod fee_validation_test;
+
+#[cfg(test)]
+mod atomic_token_creation_test;

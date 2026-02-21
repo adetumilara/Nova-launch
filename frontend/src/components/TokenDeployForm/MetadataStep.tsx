@@ -1,234 +1,196 @@
-import { useState, useRef } from 'react';
-import { Button } from '../UI';
-import { isValidImageFile, isValidDescription } from '../../utils/validation';
-import type { FormData } from './index';
+import { useState } from 'react';
+import { Button } from '../UI/Button';
+import { ImageUpload } from '../UI/ImageUpload';
+import { Card } from '../UI/Card';
+import { formatXLM } from '../../utils/formatting';
+import type { ImageValidationResult } from '../../utils/imageValidation';
 
 interface MetadataStepProps {
-  data: FormData;
-  onUpdate: (updates: Partial<FormData>) => void;
-  onNext: () => void;
-  onBack: () => void;
+    onNext: (data: MetadataData) => void;
+    onBack: () => void;
+    initialData?: MetadataData;
 }
 
-export function MetadataStep({
-  data,
-  onUpdate,
-  onNext,
-  onBack,
-}: MetadataStepProps) {
-  const [imageError, setImageError] = useState<string>('');
-  const [descriptionError, setDescriptionError] = useState<string>('');
-  const [imagePreview, setImagePreview] = useState<string>('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export interface MetadataData {
+    includeMetadata: boolean;
+    image?: File;
+    description?: string;
+}
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+const BASE_FEE = 7;
+const METADATA_FEE = 3;
+const MAX_DESCRIPTION_LENGTH = 500;
 
-    const validation = isValidImageFile(file);
-    if (!validation.valid) {
-      setImageError(validation.error || 'Invalid file');
-      return;
-    }
+export function MetadataStep({ onNext, onBack, initialData }: MetadataStepProps) {
+    const [includeMetadata, setIncludeMetadata] = useState(initialData?.includeMetadata ?? false);
+    const [image, setImage] = useState<File | undefined>(initialData?.image);
+    const [description, setDescription] = useState(initialData?.description ?? '');
+    const [imageError, setImageError] = useState('');
 
-    setImageError('');
-    onUpdate({
-      metadata: {
-        ...data.metadata,
-        image: file,
-        description: data.metadata?.description || '',
-      },
-    });
+    const totalFee = includeMetadata ? BASE_FEE + METADATA_FEE : BASE_FEE;
+    const remainingChars = MAX_DESCRIPTION_LENGTH - description.length;
 
-    // Create preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImagePreview(reader.result as string);
+    const handleToggle = () => {
+        const newValue = !includeMetadata;
+        setIncludeMetadata(newValue);
+        if (!newValue) {
+            setImage(undefined);
+            setDescription('');
+            setImageError('');
+        }
     };
-    reader.readAsDataURL(file);
-  };
 
-  const handleRemoveImage = () => {
-    onUpdate({
-      metadata: {
-        ...data.metadata,
-        image: null,
-        description: data.metadata?.description || '',
-      },
-    });
-    setImagePreview('');
-    setImageError('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
+    const handleImageSelect = (file: File, result: ImageValidationResult) => {
+        if (result.valid) {
+            setImage(file);
+            setImageError('');
+        } else {
+            setImage(undefined);
+            setImageError(result.errors[0] || 'Invalid image');
+        }
+    };
 
-  const handleDescriptionChange = (value: string) => {
-    if (!isValidDescription(value)) {
-      setDescriptionError('Description must be 500 characters or less');
-    } else {
-      setDescriptionError('');
-    }
+    const handleImageRemove = () => {
+        setImage(undefined);
+        setImageError('');
+    };
 
-    onUpdate({
-      metadata: {
-        image: data.metadata?.image || null,
-        description: value,
-      },
-    });
-  };
+    const handleNext = () => {
+        if (includeMetadata && !image) {
+            setImageError('Please upload an image or disable metadata');
+            return;
+        }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+        onNext({
+            includeMetadata,
+            image: includeMetadata ? image : undefined,
+            description: includeMetadata ? description : undefined,
+        });
+    };
 
-    // Validate description if provided
-    if (data.metadata?.description && !isValidDescription(data.metadata.description)) {
-      setDescriptionError('Description must be 500 characters or less');
-      return;
-    }
+    const handleSkip = () => {
+        onNext({
+            includeMetadata: false,
+            image: undefined,
+            description: undefined,
+        });
+    };
 
-    onNext();
-  };
+    const isValid = !includeMetadata || (image && !imageError);
 
-  const handleSkip = () => {
-    // Clear metadata and proceed
-    onUpdate({
-      metadata: {
-        image: null,
-        description: '',
-      },
-    });
-    onNext();
-  };
+    return (
+        <div className="space-y-6">
+            <Card>
+                <div className="space-y-6">
+                    {/* Toggle */}
+                    <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                        <div>
+                            <label htmlFor="metadata-toggle" className="text-sm font-medium text-gray-900 cursor-pointer">
+                                Add metadata
+                            </label>
+                            <p className="text-xs text-gray-600 mt-1">
+                                Include image and description (+{METADATA_FEE} XLM)
+                            </p>
+                        </div>
+                        <input
+                            id="metadata-toggle"
+                            type="checkbox"
+                            checked={includeMetadata}
+                            onChange={handleToggle}
+                            className="h-5 w-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                        />
+                    </div>
 
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900 mb-2">
-          Token Metadata (Optional)
-        </h2>
-        <p className="text-gray-600">
-          Add an image and description to make your token more recognizable
-        </p>
-        <p className="text-sm text-blue-600 mt-1">
-          Adding metadata costs an additional 3 XLM
-        </p>
-      </div>
+                    {/* Metadata Fields */}
+                    {includeMetadata && (
+                        <div className="space-y-6 pt-4">
+                            <ImageUpload
+                                onImageSelect={handleImageSelect}
+                                onImageRemove={handleImageRemove}
+                                label="Token Image"
+                                helperText="PNG, JPG, or SVG (max 5MB, recommended 512x512px)"
+                                required
+                            />
 
-      <div className="space-y-6">
-        {/* Image Upload */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Token Image
-          </label>
-          
-          {!imagePreview ? (
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/jpg,image/svg+xml"
-                onChange={handleImageChange}
-                className="hidden"
-                id="image-upload"
-              />
-              <label
-                htmlFor="image-upload"
-                className="cursor-pointer flex flex-col items-center"
-              >
-                <svg
-                  className="w-12 h-12 text-gray-400 mb-3"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+                            {/* Description */}
+                            <div className="space-y-2">
+                                <label htmlFor="description" className="block text-sm font-medium text-gray-700">
+                                    Description
+                                </label>
+                                <textarea
+                                    id="description"
+                                    value={description}
+                                    onChange={(e) => setDescription(e.target.value)}
+                                    maxLength={MAX_DESCRIPTION_LENGTH}
+                                    rows={4}
+                                    placeholder="Describe your token..."
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                                />
+                                <div className="flex justify-between text-xs">
+                                    <span className="text-gray-500">Optional</span>
+                                    <span className={remainingChars < 50 ? 'text-orange-600' : 'text-gray-500'}>
+                                        {remainingChars} characters remaining
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Fee Display */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-gray-900">Total Fee</span>
+                            <span className="text-lg font-bold text-blue-600">{formatXLM(totalFee)} XLM</span>
+                        </div>
+                        <div className="mt-2 text-xs text-gray-600 space-y-1">
+                            <div className="flex justify-between">
+                                <span>Base deployment fee</span>
+                                <span>{formatXLM(BASE_FEE)} XLM</span>
+                            </div>
+                            {includeMetadata && (
+                                <div className="flex justify-between">
+                                    <span>Metadata fee</span>
+                                    <span>{formatXLM(METADATA_FEE)} XLM</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </Card>
+
+            {/* Actions */}
+            <div className="flex gap-4">
+                <Button
+                    type="button"
+                    variant="secondary"
+                    size="lg"
+                    onClick={onBack}
+                    className="flex-1"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                  />
-                </svg>
-                <span className="text-sm text-gray-600">
-                  Click to upload or drag and drop
-                </span>
-                <span className="text-xs text-gray-500 mt-1">
-                  PNG, JPG, or SVG (max 5MB)
-                </span>
-              </label>
+                    Back
+                </Button>
+                {!includeMetadata && (
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="lg"
+                        onClick={handleSkip}
+                        className="flex-1"
+                    >
+                        Skip
+                    </Button>
+                )}
+                <Button
+                    type="button"
+                    variant="primary"
+                    size="lg"
+                    onClick={handleNext}
+                    disabled={!isValid}
+                    className="flex-1"
+                >
+                    Next Step
+                </Button>
             </div>
-          ) : (
-            <div className="relative inline-block">
-              <img
-                src={imagePreview}
-                alt="Token preview"
-                className="w-32 h-32 object-cover rounded-lg border-2 border-gray-300"
-              />
-              <button
-                type="button"
-                onClick={handleRemoveImage}
-                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
-                aria-label="Remove image"
-              >
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path
-                    fillRule="evenodd"
-                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                    clipRule="evenodd"
-                  />
-                </svg>
-              </button>
-            </div>
-          )}
-          
-          {imageError && (
-            <p className="mt-2 text-sm text-red-600">{imageError}</p>
-          )}
         </div>
-
-        {/* Description */}
-        <div>
-          <label
-            htmlFor="description"
-            className="block text-sm font-medium text-gray-700 mb-2"
-          >
-            Description
-          </label>
-          <textarea
-            id="description"
-            rows={4}
-            value={data.metadata?.description || ''}
-            onChange={(e) => handleDescriptionChange(e.target.value)}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-              descriptionError ? 'border-red-500' : 'border-gray-300'
-            }`}
-            placeholder="Describe your token's purpose and features..."
-            maxLength={500}
-          />
-          <div className="flex justify-between mt-1">
-            <p className="text-sm text-gray-500">
-              {data.metadata?.description?.length || 0}/500 characters
-            </p>
-            {descriptionError && (
-              <p className="text-sm text-red-600">{descriptionError}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex justify-between pt-4">
-        <Button type="button" variant="outline" onClick={onBack}>
-          Back
-        </Button>
-        <div className="flex gap-3">
-          <Button type="button" variant="outline" onClick={handleSkip}>
-            Skip Metadata
-          </Button>
-          <Button type="submit" disabled={!!imageError || !!descriptionError}>
-            Next: Review
-          </Button>
-        </div>
-      </div>
-    </form>
-  );
+    );
 }
