@@ -909,13 +909,19 @@ impl TokenFactory {
         // Emit optimized event
         events::emit_clawback_toggled(&env, &token_address, &admin, enabled);
 
-    if info.metadata_uri.is_some() {
-        return Err(Error::MetadataAlreadySet);
+        Ok(())
     }
-    info.metadata_uri = Some(new_metadata_uri);
-    storage::set_token_info(&env, index, &info);
-    Ok(())
-}
+
+    /// Set metadata URI for a token (one-time operation)
+    pub fn set_metadata(env: Env, index: u32, new_metadata_uri: soroban_sdk::String) -> Result<(), Error> {
+        let mut info = storage::get_token_info(&env, index).ok_or(Error::TokenNotFound)?;
+        if info.metadata_uri.is_some() {
+            return Err(Error::MetadataAlreadySet);
+        }
+        info.metadata_uri = Some(new_metadata_uri);
+        storage::set_token_info(&env, index, &info);
+        Ok(())
+    }
 
     /// Burn tokens from caller's own balance
     ///

@@ -1,5 +1,5 @@
-use soroban_sdk::{contracttype, Address, String};
-use crate::types::Error;
+use soroban_sdk::{contracttype, Address, String, Vec};
+use crate::types::{Error, PaginationCursor};
 
 /// Stream information with optional metadata
 #[contracttype]
@@ -11,6 +11,20 @@ pub struct StreamInfo {
     pub amount: i128,
     pub metadata: Option<String>,
     pub created_at: u64,
+}
+
+/// Paginated stream result
+///
+/// Contains a page of streams and a cursor for fetching the next page.
+///
+/// # Fields
+/// * `streams` - Vector of stream info for this page
+/// * `cursor` - Cursor for next page (None = no more results)
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PaginatedStreams {
+    pub streams: Vec<StreamInfo>,
+    pub cursor: Option<PaginationCursor>,
 }
 
 /// Validate stream metadata length (max 512 chars)
