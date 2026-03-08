@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use soroban_sdk::{self, contracterror, contracttype, Address, Bytes, Env, String, Vec};
+use soroban_sdk::{self, contracterror, contracttype, Address, Bytes, BytesN, String, Vec};
 
 /// Factory state containing administrative configuration
 ///
@@ -117,6 +117,31 @@ pub struct StreamParams {
     pub cliff_time: u64,
 }
 
+/// Current lifecycle state for a vault allocation.
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VaultStatus {
+    Active,
+    Claimed,
+    Cancelled,
+}
+
+/// Time-locked and milestone-gated token allocation vault.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Vault {
+    pub id: u64,
+    pub token: Address,
+    pub owner: Address,
+    pub creator: Address,
+    pub total_amount: i128,
+    pub claimed_amount: i128,
+    pub unlock_time: u64,
+    pub milestone_hash: BytesN<32>,
+    pub status: VaultStatus,
+    pub created_at: u64,
+}
+
 /// Compact read-only snapshot of a token's current state.
 /// Returned by get_token_stats().
 #[contracttype]
@@ -213,6 +238,13 @@ pub enum DataKey {
     TokenStreamCount(u32),
     NextStreamId,
     GovernanceConfig,
+    // Vault management keys
+    Vault(u64),
+    VaultCount,
+    VaultByOwner(Address, u32),
+    OwnerVaultCount(Address),
+    VaultByCreator(Address, u32),
+    CreatorVaultCount(Address),
 }
 
 /// Contract error codes
@@ -487,4 +519,88 @@ pub struct TreasuryPolicy {
 pub struct WithdrawalPeriod {
     pub period_start: u64,
     pub amount_withdrawn: i128,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DataKey, Vault, VaultStatus};
+    use soroban_sdk::{contract, contractimpl, testutils::Address as _, Address, BytesN, Env};
+
+    #[contract]
+    struct VaultTypeTestContract;
+
+    #[contractimpl]
+    impl VaultTypeTestContract {}
+
+    fn setup() -> (Env, Address) {
+        let env = Env::default();
+        let contract_id = env.register_contract(None, VaultTypeTestContract);
+        (env, contract_id)
+    }
+
+    #[test]
+    fn test_vault_status_serialization_round_trip() {
+        let (env, contract_id) = setup();
+        let variants = [
+            VaultStatus::Active,
+            VaultStatus::Claimed,
+            VaultStatus::Cancelled,
+        ];
+
+        env.as_contract(&contract_id, || {
+            for (i, status) in variants.iter().enumerate() {
+                let key = DataKey::Vault(i as u64);
+                env.storage().instance().set(&key, status);
+                let decoded: VaultStatus = env.storage().instance().get(&key).unwrap();
+                assert_eq!(decoded, *status);
+            }
+        });
+    }
+
+    #[test]
+    fn test_vault_serialization_round_trip() {
+        let (env, contract_id) = setup();
+        let vault = Vault {
+            id: 42,
+            token: Address::generate(&env),
+            owner: Address::generate(&env),
+            creator: Address::generate(&env),
+            total_amount: 1_000_000,
+            claimed_amount: 250_000,
+            unlock_time: 1_750_000_000,
+            milestone_hash: BytesN::from_array(&env, &[7u8; 32]),
+            status: VaultStatus::Active,
+            created_at: 1_700_000_000,
+        };
+
+        env.as_contract(&contract_id, || {
+            let key = DataKey::Vault(vault.id);
+            env.storage().instance().set(&key, &vault);
+            let decoded: Vault = env.storage().instance().get(&key).unwrap();
+            assert_eq!(decoded, vault);
+        });
+    }
+
+    #[test]
+    fn test_vault_datakey_serialization_round_trip() {
+        let (env, contract_id) = setup();
+        let owner = Address::generate(&env);
+        let creator = Address::generate(&env);
+        let keys = [
+            DataKey::Vault(99),
+            DataKey::VaultCount,
+            DataKey::VaultByOwner(owner, 1),
+            DataKey::OwnerVaultCount(Address::generate(&env)),
+            DataKey::VaultByCreator(creator, 2),
+            DataKey::CreatorVaultCount(Address::generate(&env)),
+        ];
+
+        env.as_contract(&contract_id, || {
+            for (i, key) in keys.iter().enumerate() {
+                env.storage().instance().set(key, &(i as u32));
+                let value: u32 = env.storage().instance().get(key).unwrap();
+                assert_eq!(value, i as u32);
+            }
+        });
+    }
 }
