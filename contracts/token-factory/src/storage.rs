@@ -1,6 +1,6 @@
 use soroban_sdk::{Address, Env};
 
-use crate::types::{DataKey, Error, FactoryState, TokenInfo};
+use crate::types::{BuybackCampaign, DataKey, Error, FactoryState, TokenInfo};
 
 // ============================================================
 // Storage Functions - Burn Tracking
@@ -1283,3 +1283,38 @@ pub fn get_valid_proof(env: &Env, milestone_hash: &soroban_sdk::BytesN<32>) -> O
         .temporary()
         .get(&key)
 }
+
+// ── Buyback Campaign Storage ──────────────────────────────
+
+/// Get buyback campaign by ID
+pub fn get_buyback_campaign(env: &Env, campaign_id: u32) -> Result<BuybackCampaign, Error> {
+    env.storage()
+        .persistent()
+        .get(&DataKey::BuybackCampaign(campaign_id))
+        .ok_or(Error::TokenNotFound)
+}
+
+/// Set buyback campaign
+pub fn set_buyback_campaign(env: &Env, campaign_id: u32, campaign: &BuybackCampaign) {
+    env.storage()
+        .persistent()
+        .set(&DataKey::BuybackCampaign(campaign_id), campaign);
+}
+
+/// Get buyback campaign count
+pub fn get_buyback_campaign_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::BuybackCampaignCount)
+        .unwrap_or(0)
+}
+
+/// Increment buyback campaign count
+pub fn increment_buyback_campaign_count(env: &Env) -> u32 {
+    let count = get_buyback_campaign_count(env) + 1;
+    env.storage()
+        .instance()
+        .set(&DataKey::BuybackCampaignCount, &count);
+    count
+}
+

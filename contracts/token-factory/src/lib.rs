@@ -4,6 +4,9 @@ mod freeze_functions;
 mod governance;
 
 mod burn;
+mod buyback;
+#[cfg(test)]
+mod buyback_test;
 mod differential_engine;
 mod event_versions;
 mod events;
@@ -1897,6 +1900,81 @@ impl TokenFactory {
         approval_percent: u32,
     ) -> bool {
         governance::is_approval_met(yes_votes, total_votes, approval_percent)
+    }
+
+    /// Create a new buyback campaign
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `admin` - Admin address (must authorize)
+    /// * `token_index` - Token to buy back
+    /// * `total_budget` - Total budget for campaign
+    /// * `max_spend_per_step` - Maximum spend per execution step
+    ///
+    /// # Returns
+    /// Campaign ID
+    pub fn create_buyback_campaign(
+        env: Env,
+        admin: Address,
+        token_index: u32,
+        total_budget: i128,
+        max_spend_per_step: i128,
+    ) -> Result<u32, Error> {
+        admin.require_auth();
+        
+        let stored_admin = storage::get_admin(&env);
+        if admin != stored_admin {
+            return Err(Error::Unauthorized);
+        }
+
+        if total_budget <= 0 || max_spend_per_step <= 0 || max_spend_per_step > total_budget {
+            return Err(Error::InvalidParameters);
+        }
+
+        let campaign_id = storage::increment_buyback_campaign_count(&env);
+        let campaign = types::BuybackCampaign {
+            token_index,
+            total_budget,
+            total_spent: 0,
+            total_bought: 0,
+            total_burned: 0,
+            max_spend_per_step,
+            execution_count: 0,
+            active: true,
+        };
+
+        storage::set_buyback_campaign(&env, campaign_id, &campaign);
+        Ok(campaign_id)
+    }
+
+    /// Execute a buyback step
+    ///
+    /// # Arguments
+    /// * `env` - The contract environment
+    /// * `campaign_id` - Campaign identifier
+    /// * `executor` - Address executing the buyback
+    /// * `max_spend` - Maximum amount to spend in this step
+    /// * `min_tokens_out` - Minimum tokens to receive (slippage protection)
+    /// * `dex_address` - DEX contract address for swap
+    ///
+    /// # Returns
+    /// Amount of tokens bought and burned
+    pub fn execute_buyback_step(
+        env: Env,
+        campaign_id: u32,
+        executor: Address,
+        max_spend: i128,
+        min_tokens_out: i128,
+        dex_address: Address,
+    ) -> Result<i128, Error> {
+        buyback::execute_buyback_step(
+            &env,
+            campaign_id,
+            &executor,
+            max_spend,
+            min_tokens_out,
+            &dex_address,
+        )
     }
 }
 

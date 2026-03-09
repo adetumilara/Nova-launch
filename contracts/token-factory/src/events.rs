@@ -714,3 +714,20 @@ pub fn emit_vault_cancelled(env: &Env, vault_id: u64, actor: &Address, remaining
         (actor.clone(), remaining_amount),
     );
 }
+
+/// Emit buyback executed event
+///
+/// Published when a buyback step is executed
+pub fn emit_buyback_executed(
+    env: &Env,
+    campaign_id: u32,
+    executor: &Address,
+    spent: i128,
+    bought: i128,
+) {
+    env.events().publish(
+        (symbol_short!("bb_exec"), campaign_id),
+        (executor.clone(), spent, bought),
+    );
+}
+
