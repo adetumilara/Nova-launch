@@ -1,5 +1,6 @@
 #![no_std]
 
+mod campaign;
 mod freeze_functions;
 mod governance;
 
@@ -25,6 +26,9 @@ mod treasury;
 mod types;
 mod vesting;
 mod validation;
+
+#[cfg(test)]
+mod campaign_state_test;
 
 #[cfg(test)]
 mod governance_property_test;
