@@ -47,7 +47,7 @@
 ///
 /// Any schema changes require creating a new version (e.g., init_v2).
 
-use soroban_sdk::{symbol_short, Address, Env, String};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, String};
 
 /// Emit initialized event (v1)
 ///
@@ -404,6 +404,56 @@ pub fn emit_governance_updated(env: &Env, quorum_percent: u32, approval_percent:
     );
 }
 
+/// Emit proposal created event
+///
+/// Emitted when a new governance proposal is created
+pub fn emit_proposal_created(
+    env: &Env,
+    proposal_id: u64,
+    proposer: &Address,
+    action_type: crate::types::ActionType,
+) {
+    env.events().publish(
+        (symbol_short!("prop_cr"), proposal_id),
+        (proposer, action_type),
+    );
+}
+
+/// Emit proposal voted event
+///
+/// Emitted when a vote is cast on a proposal
+pub fn emit_proposal_voted(
+    env: &Env,
+    proposal_id: u64,
+    voter: &Address,
+    support: crate::types::VoteChoice,
+) {
+    env.events().publish(
+        (symbol_short!("prop_vote"), proposal_id),
+        (voter, support),
+    );
+}
+
+/// Emit proposal queued event
+///
+/// Emitted when a proposal is queued for execution
+pub fn emit_proposal_queued(env: &Env, proposal_id: u64, eta: u64) {
+    env.events().publish(
+        (symbol_short!("prop_que"), proposal_id),
+        (eta,),
+    );
+}
+
+/// Emit proposal executed event
+///
+/// Emitted when a proposal is successfully executed
+pub fn emit_proposal_executed(env: &Env, proposal_id: u64) {
+    env.events().publish(
+        (symbol_short!("prop_exec"), proposal_id),
+        (),
+    );
+}
+
 /// Emit stream metadata updated event (v1)
 ///
 /// **Schema Version**: 1
@@ -427,10 +477,11 @@ pub fn emit_stream_metadata_updated(
     has_metadata: bool,
 ) {
     env.events().publish(
-        (symbol_short!("strm_md"), stream_id),
+        (symbol_short!("vlt_md_v1"), stream_id),
         (updater, has_metadata),
     );
 }
+
 /// Emit metadata set event
 ///
 /// **Event Name**: meta_set
@@ -456,44 +507,12 @@ pub fn emit_metadata_set(
     );
 }
 
-/// Emit stream created event
-///
-/// Published when a new payment stream is created
-pub fn emit_stream_created(
-    env: &Env,
-    stream_id: u64,
-    creator: &Address,
-    recipient: &Address,
-    amount: i128,
-) {
-    env.events().publish(
-        (symbol_short!("strm_cr"),),
-        (stream_id, creator, recipient, amount),
-    );
-}
-
 /// Emit batch streams created event
 ///
 /// Published when multiple streams are created in a batch
 pub fn emit_batch_streams_created(env: &Env, creator: &Address, count: u32) {
     env.events()
         .publish((symbol_short!("bch_strm"),), (creator, count));
-}
-
-/// Emit stream claimed event
-///
-/// Published when tokens are claimed from a stream
-pub fn emit_stream_claimed(env: &Env, stream_id: u64, recipient: &Address, amount: i128) {
-    env.events()
-        .publish((symbol_short!("strm_clm"),), (stream_id, recipient, amount));
-}
-
-/// Emit stream cancelled event
-///
-/// Published when a stream is cancelled by creator
-pub fn emit_stream_cancelled(env: &Env, stream_id: u64, creator: &Address) {
-    env.events()
-        .publish((symbol_short!("strm_cnl"),), (stream_id, creator));
 }
 
 /// Emit vault created event
@@ -522,8 +541,6 @@ pub fn emit_vault_created(
     );
 }
 
-<<<<<<< governance-property-tests
-=======
 /// Emit vault claimed event
 ///
 /// Published when a vault owner claims unlocked tokens.
@@ -544,21 +561,6 @@ pub fn emit_vault_cancelled(
     env.events().publish(
         (symbol_short!("vlt_cnl"), vault_id),
         (actor.clone(), remaining_amount),
-    );
-}
-
-/// Emit metadata set event
-/// 
-/// Published when metadata is set for a token
-pub fn emit_metadata_set(
-    env: &Env,
-    token_address: &Address,
-    admin: &Address,
-    metadata_uri: &String,
-) {
-    env.events().publish(
-        (symbol_short!("meta_set"), token_address.clone()),
-        (admin, metadata_uri),
     );
 }
 
@@ -681,32 +683,3 @@ pub fn emit_stream_cancelled(
         (canceller, remaining_amount),
     );
 }
-
-/// Emit stream metadata updated event (v1)
-/// 
-/// **Schema Version**: 1
-/// **Event Name**: vlt_md_v1
-/// 
-/// **Topics** (indexed):
-/// - Event name: "vlt_md_v1"
-/// - stream_id: u32 - The stream identifier
-/// 
-/// **Payload** (non-indexed):
-/// - updater: Address - The address that updated the metadata
-/// - has_metadata: bool - Whether metadata is now present
-/// 
-/// **Schema Stability**: This schema is immutable. Any changes require a new version.
-/// 
-/// Emitted when stream metadata is updated
-pub fn emit_stream_metadata_updated(
-    env: &Env,
-    stream_id: u32,
-    updater: &Address,
-    has_metadata: bool,
-) {
-    env.events().publish(
-        (symbol_short!("vlt_md_v1"), stream_id),
-        (updater, has_metadata),
-    );
-}
->>>>>>> main
