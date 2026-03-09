@@ -3,17 +3,24 @@
 /// Provides functionality for creating and managing token buyback campaigns
 /// with role-based authorization and auditable event emission.
 
+use crate::campaign_validation;
 use crate::storage;
 use crate::types::{BuybackCampaign, CampaignStatus, DataKey, Error};
 use soroban_sdk::{Address, Env};
 
-/// Create a new buyback campaign
+/// Create a new buyback campaign with strict validation
 ///
 /// # Arguments
 /// * `env` - The contract environment
 /// * `creator` - Address creating the campaign (must be authorized)
 /// * `token_index` - Index of the token to buy back
 /// * `budget` - Total budget allocated for the campaign
+/// * `start_time` - When campaign becomes active
+/// * `end_time` - When campaign expires
+/// * `min_interval` - Minimum seconds between executions
+/// * `max_slippage_bps` - Maximum slippage in basis points (0-10000)
+/// * `source_token` - Token being spent (treasury token)
+/// * `target_token` - Token being bought back
 ///
 /// # Returns
 /// * `Ok(u64)` - The campaign ID if successful
@@ -24,6 +31,14 @@ use soroban_sdk::{Address, Env};
 /// - The factory admin
 /// - The token creator
 ///
+/// # Validation
+/// Performs comprehensive validation including:
+/// - Budget bounds (min/max)
+/// - Time window (start/end times, duration)
+/// - Minimum interval constraints
+/// - Slippage caps
+/// - Token pair validation
+///
 /// # Events
 /// Emits a versioned `campaign_created` event with campaign details
 pub fn create_buyback_campaign(
@@ -31,17 +46,35 @@ pub fn create_buyback_campaign(
     creator: &Address,
     token_index: u32,
     budget: i128,
+    start_time: u64,
+    end_time: u64,
+    min_interval: u64,
+    max_slippage_bps: u32,
+    source_token: &Address,
+    target_token: &Address,
 ) -> Result<u64, Error> {
     // Require authorization from the creator
     creator.require_auth();
 
-    // Validate budget
-    if budget <= 0 {
-        return Err(Error::InvalidBudget);
-    }
+    // Validate all campaign parameters
+    campaign_validation::validate_campaign_config(
+        env,
+        budget,
+        start_time,
+        end_time,
+        min_interval,
+        max_slippage_bps,
+        source_token,
+        target_token,
+    )?;
 
     // Validate token exists
     let token_info = storage::get_token_info(env, token_index)?;
+
+    // Validate target token matches the token being bought back
+    if target_token != &token_info.address {
+        return Err(Error::InvalidTokenPair);
+    }
 
     // Check authorization: must be admin or token creator
     let admin = storage::get_admin(env).ok_or(Error::MissingAdmin)?;
@@ -69,6 +102,12 @@ pub fn create_buyback_campaign(
         status: CampaignStatus::Active,
         created_at: timestamp,
         updated_at: timestamp,
+        start_time,
+        end_time,
+        min_interval,
+        max_slippage_bps,
+        source_token: source_token.clone(),
+        target_token: target_token.clone(),
     };
 
     // Persist campaign state
@@ -198,7 +237,31 @@ mod tests {
         create_test_token(&env, &admin, 0);
 
         let budget = 10_000_0000000i128;
-        let result = create_buyback_campaign(&env, &admin, 0, budget);
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
 
         assert!(result.is_ok());
         let campaign_id = result.unwrap();
@@ -214,6 +277,10 @@ mod tests {
         assert_eq!(campaign.tokens_bought, 0);
         assert_eq!(campaign.execution_count, 0);
         assert_eq!(campaign.status, CampaignStatus::Active);
+        assert_eq!(campaign.start_time, start_time);
+        assert_eq!(campaign.end_time, end_time);
+        assert_eq!(campaign.min_interval, min_interval);
+        assert_eq!(campaign.max_slippage_bps, max_slippage_bps);
 
         // Verify counters were updated
         let count: u64 = env
@@ -237,7 +304,31 @@ mod tests {
         create_test_token(&env, &creator, 0);
 
         let budget = 5_000_0000000i128;
-        let result = create_buyback_campaign(&env, &creator, 0, budget);
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &creator,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
 
         assert!(result.is_ok());
         let campaign_id = result.unwrap();
@@ -254,7 +345,31 @@ mod tests {
         create_test_token(&env, &creator, 0);
 
         let budget = 10_000_0000000i128;
-        let result = create_buyback_campaign(&env, &unauthorized, 0, budget);
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &unauthorized,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
 
         assert_eq!(result, Err(Error::Unauthorized));
     }
@@ -264,7 +379,31 @@ mod tests {
         let (env, admin, _treasury, _creator) = setup();
         create_test_token(&env, &admin, 0);
 
-        let result = create_buyback_campaign(&env, &admin, 0, 0);
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            0,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
         assert_eq!(result, Err(Error::InvalidBudget));
     }
 
@@ -273,7 +412,31 @@ mod tests {
         let (env, admin, _treasury, _creator) = setup();
         create_test_token(&env, &admin, 0);
 
-        let result = create_buyback_campaign(&env, &admin, 0, -1000);
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            -1000,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
         assert_eq!(result, Err(Error::InvalidBudget));
     }
 
@@ -282,7 +445,26 @@ mod tests {
         let (env, admin, _treasury, _creator) = setup();
 
         let budget = 10_000_0000000i128;
-        let result = create_buyback_campaign(&env, &admin, 999, budget);
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = Address::generate(&env);
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            999,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
 
         assert_eq!(result, Err(Error::TokenNotFound));
     }
@@ -293,8 +475,52 @@ mod tests {
         create_test_token(&env, &admin, 0);
         create_test_token(&env, &admin, 1);
 
-        let campaign_id_1 = create_buyback_campaign(&env, &admin, 0, 10_000_0000000).unwrap();
-        let campaign_id_2 = create_buyback_campaign(&env, &admin, 1, 20_000_0000000).unwrap();
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+
+        let target_token_0 = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+        let target_token_1 = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(1))
+            .unwrap()
+            .address;
+
+        let campaign_id_1 = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            10_000_0000000,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token_0,
+        )
+        .unwrap();
+        let campaign_id_2 = create_buyback_campaign(
+            &env,
+            &admin,
+            1,
+            20_000_0000000,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token_1,
+        )
+        .unwrap();
 
         assert_eq!(campaign_id_1, 0);
         assert_eq!(campaign_id_2, 1);
@@ -344,7 +570,32 @@ mod tests {
         create_test_token(&env, &admin, 0);
 
         let budget = 10_000_0000000i128;
-        create_buyback_campaign(&env, &admin, 0, budget).unwrap();
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        )
+        .unwrap();
 
         // Verify event payload contains correct data
         let events = env.events().all();
@@ -354,5 +605,455 @@ mod tests {
         // We can't easily deserialize the exact payload structure in tests,
         // but we can verify the event was emitted with the correct topic
         assert_eq!(last_event.topics.len(), 2);
+    }
+
+    // Validation boundary tests
+    #[test]
+    fn test_budget_below_minimum() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = crate::campaign_validation::constants::MIN_BUDGET - 1;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::BudgetBelowMinimum));
+    }
+
+    #[test]
+    fn test_budget_above_maximum() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = crate::campaign_validation::constants::MAX_BUDGET + 1;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::BudgetAboveMaximum));
+    }
+
+    #[test]
+    fn test_start_time_in_past() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current - 100; // In the past
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::StartTimeInPast));
+    }
+
+    #[test]
+    fn test_end_time_before_start() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time - 100; // Before start
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::EndTimeBeforeStart));
+    }
+
+    #[test]
+    fn test_duration_too_short() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + crate::campaign_validation::constants::MIN_DURATION - 1;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::CampaignDurationTooShort));
+    }
+
+    #[test]
+    fn test_duration_too_long() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + crate::campaign_validation::constants::MAX_DURATION + 1;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::CampaignDurationTooLong));
+    }
+
+    #[test]
+    fn test_min_interval_zero() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 0u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::InvalidMinInterval));
+    }
+
+    #[test]
+    fn test_min_interval_too_short() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = crate::campaign_validation::constants::MIN_INTERVAL - 1;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::MinIntervalTooShort));
+    }
+
+    #[test]
+    fn test_min_interval_too_long() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + crate::campaign_validation::constants::MAX_DURATION;
+        let min_interval = crate::campaign_validation::constants::MAX_INTERVAL + 1;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::MinIntervalTooLong));
+    }
+
+    #[test]
+    fn test_slippage_zero() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 0u32;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::InvalidSlippage));
+    }
+
+    #[test]
+    fn test_slippage_too_high() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = crate::campaign_validation::constants::REASONABLE_MAX_SLIPPAGE_BPS + 1;
+        let source_token = Address::generate(&env);
+        let target_token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &target_token,
+        );
+
+        assert_eq!(result, Err(Error::SlippageTooHigh));
+    }
+
+    #[test]
+    fn test_same_source_and_target_token() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let token = env
+            .storage()
+            .instance()
+            .get::<DataKey, TokenInfo>(&DataKey::Token(0))
+            .unwrap()
+            .address;
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &token,
+            &token, // Same as source
+        );
+
+        assert_eq!(result, Err(Error::SameSourceAndTarget));
+    }
+
+    #[test]
+    fn test_target_token_mismatch() {
+        let (env, admin, _treasury, _creator) = setup();
+        create_test_token(&env, &admin, 0);
+
+        let budget = 100_000_000i128;
+        let current = env.ledger().timestamp();
+        let start_time = current + 3600;
+        let end_time = start_time + 86400;
+        let min_interval = 600u64;
+        let max_slippage_bps = 100u32;
+        let source_token = Address::generate(&env);
+        let wrong_target = Address::generate(&env); // Not the token at index 0
+
+        let result = create_buyback_campaign(
+            &env,
+            &admin,
+            0,
+            budget,
+            start_time,
+            end_time,
+            min_interval,
+            max_slippage_bps,
+            &source_token,
+            &wrong_target,
+        );
+
+        assert_eq!(result, Err(Error::InvalidTokenPair));
     }
 }

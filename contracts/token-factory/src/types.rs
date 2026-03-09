@@ -517,6 +517,12 @@ pub enum CampaignStatus {
 /// * `status` - Current campaign status
 /// * `created_at` - Timestamp when campaign was created
 /// * `updated_at` - Timestamp of last update
+/// * `start_time` - When campaign becomes active
+/// * `end_time` - When campaign expires
+/// * `min_interval` - Minimum seconds between executions
+/// * `max_slippage_bps` - Maximum slippage in basis points (0-10000)
+/// * `source_token` - Token being spent (treasury token)
+/// * `target_token` - Token being bought back
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BuybackCampaign {
@@ -530,6 +536,12 @@ pub struct BuybackCampaign {
     pub status: CampaignStatus,
     pub created_at: u64,
     pub updated_at: u64,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub min_interval: u64,
+    pub max_slippage_bps: u32,
+    pub source_token: Address,
+    pub target_token: Address,
 }
 
 #[cfg(test)]
