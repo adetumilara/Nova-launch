@@ -4,6 +4,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import dotenv from "dotenv";
 import { corsOptions } from "./config/cors";
+import { validateEnv } from "./config/env";
 import adminRoutes from "./routes/admin";
 import leaderboardRoutes from "./routes/leaderboard";
 import tokenRoutes from "./routes/tokens";
@@ -17,8 +18,12 @@ import stellarEventListener from "./services/stellarEventListener";
 
 dotenv.config();
 
+// Validate required environment variables before starting the server.
+// This will throw and exit if any required variable is missing or invalid.
+const env = validateEnv();
+
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = env.PORT;
 
 // Request logging middleware (first to capture all requests)
 app.use(requestLoggingMiddleware);

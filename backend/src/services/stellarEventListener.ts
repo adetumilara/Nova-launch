@@ -7,9 +7,9 @@ import governanceEventMapper from "./governanceEventMapper";
 import { TokenEventParser, RawTokenEvent } from "./tokenEventParser";
 import { EventCursorStore } from "./eventCursorStore";
 
-const HORIZON_URL =
-  process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org";
-const FACTORY_CONTRACT_ID = process.env.FACTORY_CONTRACT_ID || "";
+const _env = validateEnv();
+const HORIZON_URL = _env.STELLAR_HORIZON_URL;
+const FACTORY_CONTRACT_ID = _env.FACTORY_CONTRACT_ID;
 const POLL_INTERVAL_MS = 5000; // Poll every 5 seconds
 
 interface StellarEvent {
