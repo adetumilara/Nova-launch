@@ -78,3 +78,12 @@ model Analytics {
   @@index([tokenId])
   @@index([date])
 }
+
+model WebhookSubscription {
+  id          String   @id @default(uuid())
+  userAddress String
+  endpoint    String   @unique
+  createdAt   DateTime @default(now())
+
+  @@index([userAddress])
+}
